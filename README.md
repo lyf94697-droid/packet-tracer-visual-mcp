@@ -30,6 +30,22 @@ It is an independent project and is not affiliated with Cisco.
 
 ## Quick Start
 
+One-line install from GitHub:
+
+```powershell
+git clone https://github.com/lyf94697-droid/packet-tracer-visual-mcp.git; cd packet-tracer-visual-mcp; python -m pip install -e .; python scripts\build_script_engine.py
+```
+
+Then add the MCP server to Codex:
+
+```toml
+[mcp_servers.packet-tracer-visual-mcp]
+command = "pt-visual-mcp"
+args = []
+```
+
+Local development install:
+
 ```powershell
 cd E:\mc\packet-tracer-visual-mcp
 python -m pip install -e .
@@ -83,6 +99,8 @@ For `uvx` publishing later, use:
 command = "uvx"
 args = ["packet-tracer-visual-mcp"]
 ```
+
+Until the package is published to PyPI, prefer the GitHub clone command above because the Packet Tracer extension files are part of the repository.
 
 ## Packet Tracer Extension
 
