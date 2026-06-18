@@ -1,42 +1,40 @@
-# Packet Tracer Lab MCP
+# Packet Tracer Visual MCP
 
-Original MCP bridge for Cisco Packet Tracer lab generation and IOS automation.
+这个项目是一个给 Packet Tracer 用的 MCP 工具。
 
-This project exposes `ptv_*` MCP tools, connects to a Packet Tracer extension over WebSocket, builds campus-network labs, generates complete IOS configurations, applies those configurations, and supports fault injection/repair demos for teaching and course design.
+说白了：以前你在 Packet Tracer 里要自己拖设备、连线、配路由、配 VLAN；现在可以让 Codex 通过 MCP 去干这些活。它特别适合计网课设、校园网实验、录屏演示、故障排查演示。
 
-It is an independent project and is not affiliated with Cisco.
+这个项目是独立实现，不是 Cisco 官方项目，也不冒充官方工具。
 
-## What It Does
+## 现在能做什么
 
-- Adds Packet Tracer devices one by one with controllable delay.
-- Adds links one by one with controllable delay.
-- Builds a campus-network demo preset:
-  - VLAN 10/20/30/40/50/99
-  - Access and trunk links
-  - Inter-VLAN routing
-  - OSPF
-  - DHCP relay/server placement
-  - DNS/Web/FTP server placement
-  - NAT/PAT edge design
-  - Two ACL verification cases
-- Generates and applies complete IOS config sets.
-- Supports static routing, RIP, OSPF, and EIGRP templates.
-- Supports IOS DHCP pools, extended ACL templates, and NAT/PAT templates.
-- Provides fault injection and repair scenarios for debugging demos.
-- Supports fast-safe topology builds with preflight validation, short retries, settle time, and post-build verification.
-- Supports automatic link port allocation and fixed-port fallback.
-- Supports fast campus validation by default: no heavy show-command sweep, just build/apply status plus one optional canvas snapshot.
-- Generates service steps and test checklist for course-design labs.
+- 读取 Packet Tracer 当前画布。
+- 自动放设备，支持一台一台出现，录屏看起来比较直观。
+- 自动连线，支持一条一条连。
+- 自动分配端口，不用每条线都手写 `FastEthernet0/1` 这种接口。
+- 内置一个中小型校园网模板：`33` 台设备，`34` 条链路。
+- 自动生成完整 IOS 配置：
+  - VLAN
+  - Access / Trunk
+  - 跨 VLAN 通信
+  - 静态路由 / RIP / OSPF / EIGRP
+  - DHCP
+  - ACL
+  - NAT/PAT
+- 可以把 IOS 配置直接下发到 Packet Tracer 设备。
+- 支持故障注入和修复演示，比如 OSPF 区域错误、ACL 误拦截、NAT 配错。
+- 默认有 `fast` 快速验收，不会一上来跑一大堆慢 `show` 命令。
+- 也能生成标准验收计划，适合最后交课设前慢慢查。
 
-## Quick Start
+## 一行安装
 
-One-line install from GitHub:
+目前还没发到 PyPI，所以先用 GitHub 安装最稳：
 
 ```powershell
 git clone https://github.com/lyf94697-droid/packet-tracer-visual-mcp.git; cd packet-tracer-visual-mcp; python -m pip install -e .; python scripts\build_script_engine.py
 ```
 
-Then add the MCP server to Codex:
+然后把 MCP 配到 Codex：
 
 ```toml
 [mcp_servers.packet-tracer-visual-mcp]
@@ -44,95 +42,80 @@ command = "pt-visual-mcp"
 args = []
 ```
 
-Local development install:
+启动 MCP：
 
 ```powershell
-cd E:\mc\packet-tracer-visual-mcp
-python -m pip install -e .
-python scripts\check_project.py
-python scripts\build_script_engine.py
 pt-visual-mcp
 ```
 
-Then open Packet Tracer, import and run:
+## Packet Tracer 里怎么接上
 
-```text
-extension\packet-tracer-visual-mcp-script-engine.js
-```
-
-Open `Extensions > PT Visual MCP`. The bridge window should show `connected`.
-
-## Project Shape
-
-```text
-packet-tracer-visual-mcp/
-  src/pt_visual_mcp/        Python MCP server and WebSocket bridge
-  extension/source/         Packet Tracer extension source
-  skill/SKILL.md            Codex skill instructions
-  examples/                 Config snippets and example prompts
-  docs/                     Notes for packaging and roadmap
-  scripts/check_project.py   Lightweight project self-check
-```
-
-## Install For Local Development
+先生成扩展脚本：
 
 ```powershell
-cd E:\mc\packet-tracer-visual-mcp
-python -m pip install -e .
-pt-visual-mcp --help
-```
-
-## Codex MCP Config
-
-Add this to `C:\Users\lyfhf\.codex\config.toml` after the package is installed:
-
-```toml
-[mcp_servers.packet-tracer-visual-mcp]
-command = "pt-visual-mcp"
-args = []
-```
-
-For `uvx` publishing later, use:
-
-```toml
-[mcp_servers.packet-tracer-visual-mcp]
-command = "uvx"
-args = ["packet-tracer-visual-mcp"]
-```
-
-Until the package is published to PyPI, prefer the GitHub clone command above because the Packet Tracer extension files are part of the repository.
-
-## Packet Tracer Extension
-
-The extension source is in `extension/source`. For local use, generate a
-Packet Tracer Script Engine entry file:
-
-```powershell
-cd E:\mc\packet-tracer-visual-mcp
 python scripts\build_script_engine.py
 ```
 
-This writes:
+然后在 Packet Tracer 里导入并运行：
 
 ```text
 extension\packet-tracer-visual-mcp-script-engine.js
 ```
 
-Expected runtime:
+接着打开：
 
-1. Start `pt-visual-mcp`.
-2. Open Cisco Packet Tracer.
-3. Import and run `extension\packet-tracer-visual-mcp-script-engine.js` in Packet Tracer Script Engine.
-4. Open `Extensions > PT Visual MCP`.
-5. The bridge window should show `connected`.
+```text
+Extensions > PT Visual MCP
+```
 
-The extension connects to:
+窗口里显示 `connected` 就说明接上了。
+
+默认连接地址是：
 
 ```text
 ws://127.0.0.1:7541/ws
 ```
 
-## Main MCP Tools
+## 计网课设能覆盖到哪
+
+内置校园网模板就是按常见计网课设来做的：
+
+- 至少 4 个 VLAN：支持，默认有 VLAN 10/20/30/40/50/99。
+- Access / Trunk：支持。
+- 跨 VLAN 通信：支持。
+- 静态路由或 OSPF：支持，还额外支持 RIP 和 EIGRP。
+- DHCP：支持 IOS DHCP 池，也可以做 DHCP relay 方案。
+- DNS / Web / FTP：服务器位置和地址规划支持，服务开关见下面说明。
+- NAT/PAT：支持。
+- ACL：支持，默认有两条允许/拒绝验证案例。
+- 连通性测试、服务测试、NAT 测试、ACL 测试：会自动生成测试清单。
+- 完整调试案例：支持，比如“VLAN30 不能访问 Web，但 DNS 正常”。
+
+## Server-PT 图形服务说明
+
+网络侧我已经能自动做：IP、网关、DNS、VLAN、路由、ACL、NAT/PAT 都可以走 MCP。
+
+但 Packet Tracer 的 `Server-PT > Services` 面板比较特殊。DNS、HTTP、FTP 这些开关和用户添加，取决于 Packet Tracer Script Engine 有没有暴露稳定 API。
+
+所以当前最稳的做法是：
+
+- `SRV-DNS`：`Services > DNS > On`
+  - `www.campus.local -> 192.168.40.20`
+  - `ftp.campus.local -> 192.168.40.30`
+- `SRV-WEB`：`Services > HTTP > On`
+- `SRV-FTP`：`Services > FTP > On`
+  - 用户：`ftpuser`
+  - 密码：`cisco`
+
+后续可以做一个实验功能：
+
+- 先探测 Server-PT 设备对象到底暴露了哪些服务相关方法。
+- 如果有稳定 API，就加 `ptv_configureServerServices`，自动开 DNS/HTTP/FTP。
+- 如果没有稳定 API，就不硬吹自动化；最多提供手动步骤或非默认的 GUI 点击方案。
+
+## 常用 MCP 工具
+
+基础操作：
 
 - `ptv_bridgeStatus`
 - `ptv_getNetwork`
@@ -142,30 +125,29 @@ ws://127.0.0.1:7541/ws
 - `ptv_addLinksTimeline`
 - `ptv_configurePc`
 - `ptv_configureIos`
+
+校园网和配置：
+
+- `ptv_getCampusPlan`
+- `ptv_buildCampusRecordingDemo`
+- `ptv_generateCampusIosConfig`
+- `ptv_applyCampusIosConfig`
+- `ptv_generateIosTemplate`
+- `ptv_applyIosConfigSet`
+
+验收和排错：
+
+- `ptv_validateCampusFast`
+- `ptv_generateCampusValidationPlan`
 - `ptv_getCommandLog`
 - `ptv_runShowCommands`
-- `ptv_generateIosTemplate`
-- `ptv_generateCampusIosConfig`
-- `ptv_generateCampusValidationPlan`
-- `ptv_validateCampusFast`
-- `ptv_applyCampusIosConfig`
-- `ptv_applyIosConfigSet`
 - `ptv_getFaultLibrary`
 - `ptv_injectFault`
 - `ptv_repairFault`
-- `ptv_getCampusPlan`
-- `ptv_buildCampusRecordingDemo`
 
-## Fast-Safe Build Mode
+## 快速录屏推荐参数
 
-Topology creation supports quality modes:
-
-- `max-speed`: fastest visual build, minimal settle time, 1 retry.
-- `fast-safe`: default, short visual delays, 3 retries, preflight validation, and post-build verification.
-- `balanced`: more retries and longer settle time.
-- `strict`: strongest validation/retry profile.
-
-For demos that need to look fast but still be reliable, use:
+想要“看起来很快，但别乱掉”，推荐：
 
 ```json
 {
@@ -175,49 +157,37 @@ For demos that need to look fast but still be reliable, use:
   "autoAssignPorts": true,
   "autoFallback": true,
   "validatePlan": true,
-  "verifyAfterBuild": true
+  "verifyAfterBuild": true,
+  "configureDevices": false
 }
 ```
 
-## Validation Modes
+如果要顺手下发配置，把 `configureDevices` 改成 `true`，但会比单纯摆拓扑慢。
 
-Validation defaults to `fast` so screen-recorded builds and course-design generation stay responsive.
+## 验收模式
 
-- `fast`: checks the generated plan shape, build/apply results, key devices, and link count. It can use one `getNetwork` canvas snapshot and does not run IOS `show` sweeps.
-- `standard`: generates an IOS command-check plan for VLAN, trunk, routing, DHCP, NAT, and ACL evidence.
-- `strict`: same command-check surface as standard, intended for slower final checks after traffic has been generated.
-- `off`: generates no validation checks.
+- `fast`：默认模式。看拓扑是否建全、构建有没有失败、关键设备和链路是否存在。不跑重型 `show` 命令。
+- `standard`：生成 VLAN、Trunk、路由、DHCP、NAT、ACL 的命令检查计划。
+- `strict`：更适合最后交付前慢慢验。
+- `off`：不验收。
 
-Use `ptv_validateCampusFast` right after a build when speed matters. Use `ptv_generateCampusValidationPlan` with `validationMode: "standard"` or `"strict"` before final submission or a slower debugging pass.
+录屏和快速生成用 `fast`，答辩前再用 `standard` 或 `strict`。
 
-## Automatic Port Allocation
+## 示例
 
-Links can omit interface names:
-
-```json
-{
-  "fromDevice": "CORE-A",
-  "toDevice": "DIST-L",
-  "linkType": "auto"
-}
-```
-
-The Packet Tracer extension scans real device ports, prefers sensible Ethernet ports, reserves ports during batch linking, and falls back from invalid fixed ports when `autoFallback` is enabled.
-
-## Example Prompt
-
-```text
-Generate the complete campus IOS configuration with OSPF, IOS DHCP pools, ACLs, and NAT/PAT.
-Preview it first, then apply it to Packet Tracer if the bridge is connected.
-```
-
-For a course-design walkthrough, see:
+课程设计示例看这里：
 
 ```text
 examples/campus-course-design.md
 ```
 
-## Development Check
+常用提示词看这里：
+
+```text
+examples/prompts.md
+```
+
+## 本地自检
 
 ```powershell
 python -m pip install -e .
@@ -229,10 +199,27 @@ node --check extension\source\interface\bridge.js
 node --check extension\packet-tracer-visual-mcp-script-engine.js
 ```
 
-## Originality And License
+自检通过时会看到类似：
 
-This is an independent implementation. It does not claim to be affiliated with Cisco.
+```text
+project check passed: 21 tools, 33 devices, 34 links
+```
 
-If you later copy code from another MIT-licensed Packet Tracer MCP project, keep that project's license and attribution. The current repository is intended to be a clean rewrite focused on visual timeline builds and course-design presets.
+## 项目结构
 
-License: MIT.
+```text
+packet-tracer-visual-mcp/
+  src/pt_visual_mcp/         MCP 服务端和 WebSocket 桥接
+  extension/source/          Packet Tracer 扩展源码
+  extension/*.js             可导入 Packet Tracer 的脚本
+  skill/SKILL.md             Codex 技能说明
+  examples/                  示例提示词和课设示例
+  docs/                      功能说明和开发笔记
+  scripts/check_project.py   项目自检脚本
+```
+
+## 许可证
+
+MIT License。
+
+如果你基于别人的 MIT 项目继续改，记得保留对方的协议和署名。这个仓库当前定位是一个干净的原创实现，重点是 Packet Tracer 可视化拓扑生成、课程设计预设和 IOS 自动化。

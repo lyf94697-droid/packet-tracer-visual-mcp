@@ -1,22 +1,22 @@
-# Campus Course Design Example
+# 校园网课程设计示例
 
-This example maps a common computer-network course-design requirement to the built-in campus preset.
+这个示例对应常见《计算机网络课程设计》要求，目标是快速做出一个看起来像样、功能也够完整的中小型校园网。
 
-## Lab Coverage
+## 覆盖内容
 
-- VLANs: 10, 20, 30, 40, 50, 99.
-- Access and trunk switching.
-- Inter-VLAN routing on multilayer core switches.
-- Static routing, RIP, OSPF, or EIGRP configuration generation.
-- IOS DHCP pools or DHCP relay design.
-- DNS, Web, and FTP server placement.
-- NAT/PAT on the edge router.
-- ACL 100 and ACL 101 allow/deny cases.
-- Connectivity, service, NAT, ACL, and debug test notes.
+- VLAN：10、20、30、40、50、99。
+- Access / Trunk 交换。
+- 核心三层交换机做跨 VLAN。
+- 支持静态路由、RIP、OSPF、EIGRP 配置生成。
+- 支持 IOS DHCP 地址池，也可以切换成 DHCP relay 思路。
+- 规划 DNS、Web、FTP 服务器区。
+- 出口路由器做 NAT/PAT。
+- 两条 ACL：一条拦 Web，一条拦 FTP。
+- 自带连通性、服务、NAT、ACL、调试测试点。
 
-## Fast Screen-Recording Build
+## 快速录屏搭建
 
-Use `ptv_buildCampusRecordingDemo` with:
+调用 `ptv_buildCampusRecordingDemo` 时可以用：
 
 ```json
 {
@@ -31,11 +31,11 @@ Use `ptv_buildCampusRecordingDemo` with:
 }
 ```
 
-This creates the visual topology quickly and returns service steps, tests, and a fast validation report.
+这个模式会先把拓扑快速摆出来，同时保留基本校验，适合录屏宣传。
 
-## Full Network Configuration
+## 完整网络配置
 
-After the topology exists, use `ptv_generateCampusIosConfig` or `ptv_applyCampusIosConfig`:
+拓扑存在后，再用 `ptv_generateCampusIosConfig` 或 `ptv_applyCampusIosConfig`：
 
 ```json
 {
@@ -47,9 +47,9 @@ After the topology exists, use `ptv_generateCampusIosConfig` or `ptv_applyCampus
 }
 ```
 
-## Fast Validation
+## 快速验收
 
-Use `ptv_validateCampusFast` immediately after a build:
+搭完之后用 `ptv_validateCampusFast`：
 
 ```json
 {
@@ -57,7 +57,9 @@ Use `ptv_validateCampusFast` immediately after a build:
 }
 ```
 
-Fast validation checks topology and workflow health without running a long `show` command sweep. For a final slower pass, generate a standard plan:
+`fast` 模式不会跑一大堆慢 `show` 命令，主要看拓扑有没有建全、构建有没有失败、关键设备和链路是否存在。
+
+最后交课设前，可以生成慢一点但更细的验收计划：
 
 ```json
 {
@@ -67,10 +69,12 @@ Fast validation checks topology and workflow health without running a long `show
 }
 ```
 
-## Manual Server Services
+## Server-PT 服务
 
-Packet Tracer Server-PT graphical service panels may still need manual setup:
+Server-PT 的图形服务建议按下面手动确认：
 
-- DNS: `www.campus.local -> 192.168.40.20`, `ftp.campus.local -> 192.168.40.30`.
-- HTTP: enable on the Web server.
-- FTP: enable on the FTP server and add `ftpuser / cisco`.
+- DNS：`www.campus.local -> 192.168.40.20`，`ftp.campus.local -> 192.168.40.30`
+- HTTP：Web 服务器开启 HTTP
+- FTP：FTP 服务器开启 FTP，添加 `ftpuser / cisco`
+
+如果后续确认 Packet Tracer 脚本接口能稳定控制 Services 面板，可以再把这一步做成自动化工具。

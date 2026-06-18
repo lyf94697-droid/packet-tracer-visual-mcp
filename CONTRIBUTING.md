@@ -1,10 +1,10 @@
-# Contributing
+# 参与贡献
 
-Contributions are welcome for Packet Tracer lab presets, IOS templates, validation profiles, and extension improvements.
+欢迎提交新的 Packet Tracer 实验模板、IOS 配置模板、验收方案、故障案例和扩展脚本改进。
 
-## Local Check
+## 本地检查
 
-Run:
+提交前建议跑一遍：
 
 ```powershell
 python -m pip install -e .
@@ -15,10 +15,11 @@ node --check extension\source\interface\bridge.js
 node --check extension\packet-tracer-visual-mcp-script-engine.js
 ```
 
-## Design Rules
+## 基本约定
 
-- Keep the MCP tool names under the `ptv_` prefix.
-- Prefer explicit, reproducible lab plans over mouse automation.
-- Keep `fast` validation quick; reserve command-heavy checks for `standard` or `strict`.
-- Do not claim Cisco affiliation.
-- Document Packet Tracer Script Engine limitations when adding new bridge APIs.
+- MCP 工具名统一用 `ptv_` 前缀。
+- 优先走 Packet Tracer 脚本接口，不把鼠标点击当成核心方案。
+- `fast` 验收要保持快，不要塞一堆重型 `show` 命令。
+- 慢检查放到 `standard` 或 `strict`。
+- 不要写成 Cisco 官方项目。
+- 如果新增 Packet Tracer Script Engine 能力，要把接口限制写清楚。
