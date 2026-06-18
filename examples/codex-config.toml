@@ -1,0 +1,3 @@
+[mcp_servers.packet-tracer-visual-mcp]
+command = "pt-visual-mcp"
+args = []

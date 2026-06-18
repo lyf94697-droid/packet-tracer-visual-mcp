@@ -1,0 +1,618 @@
+var ptvDeviceTypes = {
+  "1941": 0,
+  "2901": 0,
+  "2911": 0,
+  "2960-24TT": 1,
+  "2960-48TT": 1,
+  "PC-PT": 8,
+  "Server-PT": 9,
+  "Printer-PT": 10,
+  "3560-24PS": 16,
+  "Laptop-PT": 18
+};
+
+var ptvLinkTypes = {
+  "straight": 8100,
+  "ethernet-straight": 8100,
+  "cross": 8101,
+  "fiber": 8103,
+  "serial": 8106,
+  "auto": 8107,
+  "console": 8108
+};
+
+var ptvModelPortRules = {
+  "2911": { fast: 0, gig: 3 },
+  "1941": { fast: 0, gig: 2 },
+  "2901": { fast: 0, gig: 2 },
+  "3560-24PS": { fast: 24, gig: 2 },
+  "2960-24TT": { fast: 24, gig: 2 },
+  "2960-48TT": { fast: 48, gig: 2 },
+  "PC-PT": { endpoint: true },
+  "Server-PT": { endpoint: true },
+  "Laptop-PT": { endpoint: true },
+  "Printer-PT": { endpoint: true }
+};
+
+function ptvSuccess(data) {
+  data = data || {};
+  data.success = true;
+  return data;
+}
+
+function ptvError(message) {
+  return { success: false, error: String(message) };
+}
+
+function ptvTrim(value) {
+  return String(value || "").replace(/^\s+|\s+$/g, "");
+}
+
+function ptvModelHasPort(model, portName) {
+  var rule = ptvModelPortRules[model];
+  var match;
+  if (!rule || !portName) return true;
+  if (rule.endpoint) return portName === "FastEthernet0" || portName === "GigabitEthernet0";
+
+  match = /^FastEthernet0\/(\d+)$/.exec(portName);
+  if (match) return Number(match[1]) >= 1 && Number(match[1]) <= rule.fast;
+
+  match = /^GigabitEthernet0\/(\d+)$/.exec(portName);
+  if (match) return Number(match[1]) >= 0 && Number(match[1]) < rule.gig;
+
+  return true;
+}
+
+function ptvDeviceHasPort(deviceName, portName) {
+  var device = ipc.network().getDevice(deviceName);
+  if (!device) return false;
+  return !!device.getPort(portName);
+}
+
+function ptvIsAutoPort(portName) {
+  var value = ptvTrim(portName).toLowerCase();
+  return value === "" || value === "auto" || value === "*";
+}
+
+function ptvPortKey(deviceName, portName) {
+  return String(deviceName || "") + "|" + String(portName || "");
+}
+
+function ptvReservedMap(raw) {
+  var map = {};
+  var i;
+  if (!raw) return map;
+  if (raw.length !== undefined && typeof raw !== "string") {
+    for (i = 0; i < raw.length; i++) map[String(raw[i])] = true;
+    return map;
+  }
+  for (i in raw) {
+    if (raw.hasOwnProperty(i) && raw[i]) map[String(i)] = true;
+  }
+  return map;
+}
+
+function ptvMarkReserved(map, deviceName, portName) {
+  map[ptvPortKey(deviceName, portName)] = true;
+}
+
+function ptvIsReserved(map, deviceName, portName) {
+  return !!map[ptvPortKey(deviceName, portName)];
+}
+
+function ptvIsEndpointModel(model) {
+  var rule = ptvModelPortRules[model];
+  return !!(rule && rule.endpoint);
+}
+
+function ptvPortRank(portName, preferAccess) {
+  var match;
+  if (portName === "FastEthernet0") return 0;
+  if (portName === "GigabitEthernet0") return 1;
+
+  match = /^GigabitEthernet0\/(\d+)$/.exec(portName);
+  if (match) return (preferAccess ? 2000 : 1000) + Number(match[1]);
+
+  match = /^FastEthernet0\/(\d+)$/.exec(portName);
+  if (match) return (preferAccess ? 1000 : 2000) + Number(match[1]);
+
+  return 9000;
+}
+
+function ptvModelPortCandidates(model, oppositeModel) {
+  var rule = ptvModelPortRules[model];
+  var preferAccess = ptvIsEndpointModel(oppositeModel);
+  var ports = [];
+  var i;
+  if (!rule) return ports;
+  if (rule.endpoint) return ["FastEthernet0", "GigabitEthernet0"];
+  for (i = 0; i < rule.gig; i++) ports.push("GigabitEthernet0/" + i);
+  for (i = 1; i <= rule.fast; i++) ports.push("FastEthernet0/" + i);
+  ports.sort(function (a, b) { return ptvPortRank(a, preferAccess) - ptvPortRank(b, preferAccess); });
+  return ports;
+}
+
+function ptvModelPortCapacity(model) {
+  var rule = ptvModelPortRules[model];
+  if (!rule) return 0;
+  if (rule.endpoint) return 1;
+  return Number(rule.fast || 0) + Number(rule.gig || 0);
+}
+
+function ptvDevicePortCandidates(deviceName, oppositeDeviceName, requested, reserved, autoFallback) {
+  var device = ipc.network().getDevice(deviceName);
+  var opposite = ipc.network().getDevice(oppositeDeviceName);
+  var preferAccess = opposite ? ptvIsEndpointModel(opposite.getModel()) : false;
+  var ports = [];
+  var seen = {};
+  var i;
+
+  function add(portName) {
+    if (!portName || seen[portName]) return;
+    seen[portName] = true;
+    if (!ptvDeviceHasPort(deviceName, portName)) return;
+    if (ptvIsReserved(reserved, deviceName, portName)) return;
+    ports.push(portName);
+  }
+
+  if (!device) return ports;
+
+  if (!ptvIsAutoPort(requested)) {
+    add(requested);
+    if (!autoFallback) return ports;
+  }
+
+  var actual = [];
+  var count = device.getPortCount();
+  for (i = 0; i < count; i++) {
+    var port = device.getPortAt(i);
+    if (!port) continue;
+    var name = port.getName();
+    if (/^(FastEthernet|GigabitEthernet)/.test(name)) actual.push(name);
+  }
+  actual.sort(function (a, b) { return ptvPortRank(a, preferAccess) - ptvPortRank(b, preferAccess); });
+  for (i = 0; i < actual.length; i++) add(actual[i]);
+  return ports;
+}
+
+function ptvAddDevice(input) {
+  try {
+    input = input || {};
+    var name = input.name || input.deviceName;
+    var model = input.model || input.deviceModel;
+    var type = ptvDeviceTypes[model];
+    var x = Number(input.x);
+    var y = Number(input.y);
+
+    if (!name || !model) return ptvError("device name and model are required");
+    if (type === undefined) return ptvError("unsupported device model: " + model);
+    if (!isFinite(x) || !isFinite(y)) return ptvError("x and y must be numbers");
+    if (ipc.network().getDevice(name)) return ptvError("device already exists: " + name);
+
+    var original = ipc.getActiveWorkspace().getLogicalWorkspace().addDevice(type, model, x, y);
+    if (!original) return ptvError("Packet Tracer refused to create " + model);
+
+    var device = ipc.network().getDevice(original);
+    if (!device) return ptvError("created device was not found: " + original);
+    device.setName(name);
+    if (type === 0 || type === 1 || type === 16) device.skipBoot();
+
+    if (!ipc.network().getDevice(name)) return ptvError("created device was not found after rename: " + name);
+
+    return ptvSuccess({ name: name, model: model, x: x, y: y });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvAddLink(input) {
+  try {
+    input = input || {};
+    var fromDevice = input.fromDevice || input.device1Name;
+    var fromInterface = input.fromInterface || input.device1Interface;
+    var toDevice = input.toDevice || input.device2Name;
+    var toInterface = input.toInterface || input.device2Interface;
+    var linkType = input.linkType || "auto";
+    var autoAssignPorts = input.autoAssignPorts !== false;
+    var autoFallback = input.autoFallback !== false;
+    var reserved = ptvReservedMap(input.reservedPorts || input.usedPorts);
+    var type = ptvLinkTypes[linkType];
+    var fromCandidates;
+    var toCandidates;
+    var i;
+    var j;
+
+    if (type === undefined) return ptvError("unsupported link type: " + linkType);
+    if (!ipc.network().getDevice(fromDevice)) return ptvError("device not found: " + fromDevice);
+    if (!ipc.network().getDevice(toDevice)) return ptvError("device not found: " + toDevice);
+
+    if (!autoAssignPorts && (ptvIsAutoPort(fromInterface) || ptvIsAutoPort(toInterface))) {
+      return ptvError("interfaces are required when autoAssignPorts is false");
+    }
+
+    fromCandidates = ptvDevicePortCandidates(fromDevice, toDevice, fromInterface, reserved, autoAssignPorts && autoFallback);
+    toCandidates = ptvDevicePortCandidates(toDevice, fromDevice, toInterface, reserved, autoAssignPorts && autoFallback);
+
+    if (fromCandidates.length === 0) return ptvError("no usable interface on " + fromDevice);
+    if (toCandidates.length === 0) return ptvError("no usable interface on " + toDevice);
+
+    for (i = 0; i < fromCandidates.length; i++) {
+      for (j = 0; j < toCandidates.length; j++) {
+        var fromPort = fromCandidates[i];
+        var toPort = toCandidates[j];
+        if (fromDevice === toDevice && fromPort === toPort) continue;
+        var ok = ipc.getActiveWorkspace().getLogicalWorkspace().createLink(
+          fromDevice,
+          fromPort,
+          toDevice,
+          toPort,
+          type
+        );
+        if (ok) {
+          return ptvSuccess({
+            fromDevice: fromDevice,
+            fromInterface: fromPort,
+            toDevice: toDevice,
+            toInterface: toPort,
+            assignedFromInterface: fromPort,
+            assignedToInterface: toPort,
+            requestedFromInterface: fromInterface || "auto",
+            requestedToInterface: toInterface || "auto",
+            linkType: linkType
+          });
+        }
+      }
+    }
+    return ptvError("failed to link " + fromDevice + " to " + toDevice + " with available interfaces");
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvValidatePlan(input) {
+  try {
+    input = input || {};
+    var plan = input.plan || input;
+    var devices = plan.devices || [];
+    var links = plan.links || [];
+    var minSpacing = Number(input.minSpacing || 60);
+    var allowExisting = !!input.allowExisting;
+    var autoAssignPorts = input.autoAssignPorts !== false;
+    var autoFallback = input.autoFallback !== false;
+    var errors = [];
+    var warnings = [];
+    var seenDevices = {};
+    var plannedModels = {};
+    var i;
+    var j;
+
+    for (i = 0; i < devices.length; i++) {
+      var device = devices[i] || {};
+      var name = device.name;
+      var model = device.model;
+      var x = Number(device.x);
+      var y = Number(device.y);
+      if (!name) errors.push("device at index " + i + " has no name");
+      if (seenDevices[name]) errors.push("duplicate device name in plan: " + name);
+      seenDevices[name] = true;
+      plannedModels[name] = model;
+      if (ptvDeviceTypes[model] === undefined) errors.push("unsupported model for " + name + ": " + model);
+      if (!isFinite(x) || !isFinite(y)) errors.push("invalid coordinates for " + name);
+      if (!allowExisting && name && ipc.network().getDevice(name)) errors.push("device already exists on canvas: " + name);
+
+      for (j = 0; j < i; j++) {
+        var other = devices[j] || {};
+        var dx = Number(other.x) - x;
+        var dy = Number(other.y) - y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (isFinite(dist) && dist < 35) errors.push("devices overlap or are too close: " + name + " and " + other.name);
+        else if (isFinite(dist) && dist < minSpacing) warnings.push("devices are visually close: " + name + " and " + other.name);
+      }
+    }
+
+    var seenLinks = {};
+    var plannedPortUse = {};
+    var plannedDeviceDemand = {};
+    for (i = 0; i < links.length; i++) {
+      var link = links[i] || {};
+      var fromDevice = link.fromDevice;
+      var toDevice = link.toDevice;
+      var fromInterface = link.fromInterface;
+      var toInterface = link.toInterface;
+      var linkType = link.linkType || "auto";
+      var key = fromDevice + "|" + fromInterface + "|" + toDevice + "|" + toInterface;
+      var reverseKey = toDevice + "|" + toInterface + "|" + fromDevice + "|" + fromInterface;
+      if (seenLinks[key] || seenLinks[reverseKey]) errors.push("duplicate link in plan: " + key);
+      seenLinks[key] = true;
+
+      plannedDeviceDemand[fromDevice] = (plannedDeviceDemand[fromDevice] || 0) + 1;
+      plannedDeviceDemand[toDevice] = (plannedDeviceDemand[toDevice] || 0) + 1;
+      if (!ptvIsAutoPort(fromInterface)) {
+        var fromPortKey = ptvPortKey(fromDevice, fromInterface);
+        if (plannedPortUse[fromPortKey]) errors.push("planned source port reused: " + fromDevice + ":" + fromInterface);
+        plannedPortUse[fromPortKey] = true;
+      }
+      if (!ptvIsAutoPort(toInterface)) {
+        var toPortKey = ptvPortKey(toDevice, toInterface);
+        if (plannedPortUse[toPortKey]) errors.push("planned target port reused: " + toDevice + ":" + toInterface);
+        plannedPortUse[toPortKey] = true;
+      }
+
+      if (ptvLinkTypes[linkType] === undefined) errors.push("unsupported link type: " + linkType);
+      if (!fromDevice || !toDevice) errors.push("link at index " + i + " is incomplete");
+      if (!autoAssignPorts && (ptvIsAutoPort(fromInterface) || ptvIsAutoPort(toInterface))) {
+        errors.push("link at index " + i + " needs explicit interfaces when autoAssignPorts is false");
+      }
+      if (!plannedModels[fromDevice] && !ipc.network().getDevice(fromDevice)) errors.push("link source device not in plan or canvas: " + fromDevice);
+      if (!plannedModels[toDevice] && !ipc.network().getDevice(toDevice)) errors.push("link target device not in plan or canvas: " + toDevice);
+
+      if (plannedModels[fromDevice] && !ptvIsAutoPort(fromInterface) && !ptvModelHasPort(plannedModels[fromDevice], fromInterface)) {
+        if (autoFallback && ptvModelPortCandidates(plannedModels[fromDevice], plannedModels[toDevice]).length > 0) warnings.push("source interface will fall back to auto: " + fromDevice + ":" + fromInterface);
+        else errors.push("source interface does not fit model: " + fromDevice + ":" + fromInterface);
+      } else if (!plannedModels[fromDevice] && fromDevice && ipc.network().getDevice(fromDevice) && !ptvIsAutoPort(fromInterface) && !ptvDeviceHasPort(fromDevice, fromInterface)) {
+        if (autoFallback) warnings.push("source interface will fall back to auto: " + fromDevice + ":" + fromInterface);
+        else errors.push("source interface missing on canvas: " + fromDevice + ":" + fromInterface);
+      }
+
+      if (plannedModels[toDevice] && !ptvIsAutoPort(toInterface) && !ptvModelHasPort(plannedModels[toDevice], toInterface)) {
+        if (autoFallback && ptvModelPortCandidates(plannedModels[toDevice], plannedModels[fromDevice]).length > 0) warnings.push("target interface will fall back to auto: " + toDevice + ":" + toInterface);
+        else errors.push("target interface does not fit model: " + toDevice + ":" + toInterface);
+      } else if (!plannedModels[toDevice] && toDevice && ipc.network().getDevice(toDevice) && !ptvIsAutoPort(toInterface) && !ptvDeviceHasPort(toDevice, toInterface)) {
+        if (autoFallback) warnings.push("target interface will fall back to auto: " + toDevice + ":" + toInterface);
+        else errors.push("target interface missing on canvas: " + toDevice + ":" + toInterface);
+      }
+
+      if (plannedModels[fromDevice] && ptvIsAutoPort(fromInterface) && ptvModelPortCandidates(plannedModels[fromDevice], plannedModels[toDevice]).length === 0) {
+        errors.push("source interface does not fit model: " + fromDevice + ":" + fromInterface);
+      }
+
+      if (plannedModels[toDevice] && ptvIsAutoPort(toInterface) && ptvModelPortCandidates(plannedModels[toDevice], plannedModels[fromDevice]).length === 0) {
+        errors.push("target interface does not fit model: " + toDevice + ":" + toInterface);
+      }
+    }
+
+    for (var demandDevice in plannedDeviceDemand) {
+      if (!plannedDeviceDemand.hasOwnProperty(demandDevice)) continue;
+      var demandModel = plannedModels[demandDevice];
+      if (demandModel) {
+        var capacity = ptvModelPortCapacity(demandModel);
+        if (capacity > 0 && plannedDeviceDemand[demandDevice] > capacity) {
+          errors.push("planned links exceed port capacity: " + demandDevice + " needs " + plannedDeviceDemand[demandDevice] + " ports but model " + demandModel + " has about " + capacity);
+        }
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      errors: errors,
+      warnings: warnings,
+      deviceCount: devices.length,
+      linkCount: links.length
+    };
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvVerifyPlan(input) {
+  try {
+    input = input || {};
+    var plan = input.plan || input;
+    var devices = plan.devices || [];
+    var links = plan.links || [];
+    var errors = [];
+    var i;
+    var actualLinks = ipc.network().getLinkCount();
+
+    for (i = 0; i < devices.length; i++) {
+      var device = devices[i] || {};
+      if (!ipc.network().getDevice(device.name)) errors.push("missing device after build: " + device.name);
+    }
+
+    for (i = 0; i < links.length; i++) {
+      var link = links[i] || {};
+      if (!ptvDeviceHasPort(link.fromDevice, link.fromInterface)) {
+        errors.push("missing source interface after build: " + link.fromDevice + ":" + link.fromInterface);
+      }
+      if (!ptvDeviceHasPort(link.toDevice, link.toInterface)) {
+        errors.push("missing target interface after build: " + link.toDevice + ":" + link.toInterface);
+      }
+    }
+
+    if (actualLinks < links.length) {
+      errors.push("actual link count is lower than expected: expected at least " + links.length + ", actual " + actualLinks);
+    }
+
+    return ptvSuccess({
+      verified: errors.length === 0,
+      errors: errors,
+      expectedDevices: devices.length,
+      expectedLinks: links.length,
+      actualDevices: ipc.network().getDeviceCount(),
+      actualLinks: actualLinks
+    });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvConfigurePc(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName;
+    var device = ipc.network().getDevice(deviceName);
+    if (!device) return ptvError("device not found: " + deviceName);
+
+    var port = device.getPort("FastEthernet0");
+    if (!port) port = device.getPort("GigabitEthernet0");
+    if (!port) return ptvError("no editable Ethernet port found on " + deviceName);
+
+    if (input.dhcp !== undefined) device.setDhcpFlag(!!input.dhcp);
+    if (input.ip && input.mask) port.setIpSubnetMask(input.ip, input.mask);
+    if (input.gateway) port.setDefaultGateway(input.gateway);
+    if (input.dns) port.setDnsServerIp(input.dns);
+
+    return ptvSuccess({ deviceName: deviceName });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvConfigureIos(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName;
+    var device = ipc.network().getDevice(deviceName);
+    if (!device) return ptvError("device not found: " + deviceName);
+
+    var raw = input.commands || [];
+    var commands = [];
+    var i;
+    if (typeof raw === "string") {
+      commands = raw.split(/\r?\n/);
+    } else if (raw.length !== undefined) {
+      for (i = 0; i < raw.length; i++) {
+        var chunk = String(raw[i]).split(/\r?\n/);
+        for (var j = 0; j < chunk.length; j++) commands.push(chunk[j]);
+      }
+    } else {
+      return ptvError("commands must be a string or array");
+    }
+
+    device.skipBoot();
+    for (i = 0; i < commands.length; i++) {
+      var command = ptvTrim(commands[i]);
+      if (command) device.enterCommand(command, "");
+    }
+    return ptvSuccess({ deviceName: deviceName, commandCount: commands.length });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvGetCommandLog(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName || "";
+    var limit = Number(input.limit || 80);
+    var log = ipc.commandLog();
+    var total = log.getEntryCount();
+    var cap = limit > 0 ? Math.min(limit, 500) : 80;
+    var entries = [];
+    var i;
+
+    for (i = total - 1; i >= 0 && entries.length < cap; i--) {
+      var entry = log.getEntryAt(i);
+      if (!entry) continue;
+      var dev = entry.getDeviceName();
+      if (deviceName && dev !== deviceName) continue;
+      entries.push({
+        timestamp: entry.getTimeToString(),
+        device: dev,
+        prompt: entry.getPrompt(),
+        command: entry.getCommand(),
+        resolvedCommand: entry.getResolvedCommand()
+      });
+    }
+
+    return ptvSuccess({ totalEntries: total, returned: entries.length, entries: entries });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvRunShowCommands(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName;
+    var device = ipc.network().getDevice(deviceName);
+    var raw = input.commands || [];
+    var commands = [];
+    var i;
+    if (!device) return ptvError("device not found: " + deviceName);
+
+    if (typeof raw === "string") {
+      commands = raw.split(/\r?\n/);
+    } else if (raw.length !== undefined) {
+      for (i = 0; i < raw.length; i++) commands.push(String(raw[i]));
+    } else {
+      return ptvError("commands must be a string or array");
+    }
+
+    device.skipBoot();
+    device.enterCommand("enable", "");
+    for (i = 0; i < commands.length; i++) {
+      var command = ptvTrim(commands[i]);
+      if (command) device.enterCommand(command, "enable");
+    }
+
+    var logResult = ptvGetCommandLog({ deviceName: deviceName, limit: Number(input.logLimit || 120) });
+    return ptvSuccess({
+      deviceName: deviceName,
+      executedCommands: commands,
+      commandLog: logResult.success ? logResult : null,
+      outputAvailable: false,
+      note: "Packet Tracer commandLog confirms command history but does not expose full show-command output."
+    });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvGetNetwork() {
+  try {
+    var i;
+    var j;
+    var devices = [];
+    var links = [];
+    var portOwner = {};
+    var deviceCount = ipc.network().getDeviceCount();
+    for (i = 0; i < deviceCount; i++) {
+      var device = ipc.network().getDeviceAt(i);
+      var ports = [];
+      var portCount = device.getPortCount();
+      for (j = 0; j < portCount; j++) {
+        var port = device.getPortAt(j);
+        var portName = port.getName();
+        ports.push({ name: portName });
+        portOwner[portName] = device.getName();
+      }
+      devices.push({
+        name: device.getName(),
+        model: device.getModel(),
+        type: device.getType(),
+        ports: ports
+      });
+    }
+
+    var linkCount = ipc.network().getLinkCount();
+    for (i = 0; i < linkCount; i++) {
+      var link = ipc.network().getLinkAt(i);
+      var p1 = link.getPort1();
+      var p2 = link.getPort2();
+      var p1Name = p1 ? p1.getName() : "";
+      var p2Name = p2 ? p2.getName() : "";
+      links.push({
+        fromDevice: portOwner[p1Name] || "",
+        fromInterface: p1Name,
+        toDevice: portOwner[p2Name] || "",
+        toInterface: p2Name
+      });
+    }
+    return ptvSuccess({ deviceCount: devices.length, linkCount: links.length, devices: devices, links: links });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+var ptvActions = {
+  addDevice: ptvAddDevice,
+  addLink: ptvAddLink,
+  configurePc: ptvConfigurePc,
+  configureIos: ptvConfigureIos,
+  runShowCommands: ptvRunShowCommands,
+  getCommandLog: ptvGetCommandLog,
+  getNetwork: ptvGetNetwork,
+  validatePlan: ptvValidatePlan,
+  verifyPlan: ptvVerifyPlan
+};
