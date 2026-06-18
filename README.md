@@ -109,9 +109,16 @@ ws://127.0.0.1:7541/ws
 
 后续可以做一个实验功能：
 
-- 先探测 Server-PT 设备对象到底暴露了哪些服务相关方法。
+- 先用 `ptv_probeServerServices` 探测 Server-PT 设备对象到底暴露了哪些服务相关方法。
 - 如果有稳定 API，就加 `ptv_configureServerServices`，自动开 DNS/HTTP/FTP。
 - 如果没有稳定 API，就不硬吹自动化；最多提供手动步骤或非默认的 GUI 点击方案。
+
+已经提供的探测工具：
+
+- `ptv_probeDeviceApi`：只读探测任意设备对象暴露了哪些方法。
+- `ptv_probeServerServices`：只读扫描 Server-PT 上 DNS/HTTP/FTP/DHCP 相关的方法线索。
+
+这两个工具不会改服务配置，只负责判断有没有稳定接口。
 
 ## 常用 MCP 工具
 
@@ -141,6 +148,8 @@ ws://127.0.0.1:7541/ws
 - `ptv_generateCampusValidationPlan`
 - `ptv_getCommandLog`
 - `ptv_runShowCommands`
+- `ptv_probeDeviceApi`
+- `ptv_probeServerServices`
 - `ptv_getFaultLibrary`
 - `ptv_injectFault`
 - `ptv_repairFault`
@@ -202,7 +211,7 @@ node --check extension\packet-tracer-visual-mcp-script-engine.js
 自检通过时会看到类似：
 
 ```text
-project check passed: 21 tools, 33 devices, 34 links
+project check passed: 23 tools, 33 devices, 34 links
 ```
 
 ## 项目结构

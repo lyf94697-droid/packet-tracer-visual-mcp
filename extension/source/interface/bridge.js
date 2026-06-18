@@ -467,7 +467,9 @@
       action === "configurePc" ||
       action === "configureIos" ||
       action === "runShowCommands" ||
-      action === "getCommandLog"
+      action === "getCommandLog" ||
+      action === "probeDeviceApi" ||
+      action === "probeServerServices"
     ) {
       promise = ptEval(action, payload);
     } else {

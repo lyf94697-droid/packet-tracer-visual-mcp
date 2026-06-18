@@ -559,6 +559,264 @@ function ptvRunShowCommands(input) {
   }
 }
 
+function ptvPushUnique(list, seen, value) {
+  value = String(value || "");
+  if (!value || seen[value]) return;
+  seen[value] = true;
+  list.push(value);
+}
+
+function ptvObjectType(value) {
+  try {
+    return Object.prototype.toString.call(value);
+  } catch (err) {
+    return typeof value;
+  }
+}
+
+function ptvCollectObjectApiKeys(obj, maxDepth, maxKeys) {
+  var levels = [];
+  var current = obj;
+  var depth = 0;
+  var globalSeen = {};
+
+  while (current && depth <= maxDepth) {
+    var keys = [];
+    var errors = [];
+    var localSeen = {};
+    var i;
+    var key;
+
+    try {
+      for (key in current) ptvPushUnique(keys, localSeen, key);
+    } catch (err1) {
+      errors.push("for-in failed: " + ((err1 && err1.message) || err1));
+    }
+
+    try {
+      if (Object.getOwnPropertyNames) {
+        var own = Object.getOwnPropertyNames(current);
+        for (i = 0; i < own.length; i++) ptvPushUnique(keys, localSeen, own[i]);
+      }
+    } catch (err2) {
+      errors.push("getOwnPropertyNames failed: " + ((err2 && err2.message) || err2));
+    }
+
+    keys.sort();
+    for (i = 0; i < keys.length && Object.keys(globalSeen).length < maxKeys; i++) {
+      globalSeen[keys[i]] = true;
+    }
+    levels.push({
+      depth: depth,
+      objectType: ptvObjectType(current),
+      keyCount: keys.length,
+      keys: keys.slice(0, maxKeys),
+      truncated: keys.length > maxKeys,
+      errors: errors
+    });
+
+    try {
+      current = Object.getPrototypeOf ? Object.getPrototypeOf(current) : null;
+    } catch (err3) {
+      levels.push({
+        depth: depth + 1,
+        objectType: "prototype",
+        keyCount: 0,
+        keys: [],
+        truncated: false,
+        errors: ["getPrototypeOf failed: " + ((err3 && err3.message) || err3)]
+      });
+      current = null;
+    }
+    depth++;
+  }
+
+  return levels;
+}
+
+function ptvMethodExists(obj, name) {
+  try {
+    return typeof obj[name] === "function";
+  } catch (err) {
+    return false;
+  }
+}
+
+function ptvCallZeroArg(obj, name) {
+  try {
+    if (!ptvMethodExists(obj, name)) return { available: false };
+    var value = obj[name]();
+    var type = typeof value;
+    if (value === null || value === undefined) {
+      return { available: true, valueType: String(value), value: String(value) };
+    }
+    if (type === "string" || type === "number" || type === "boolean") {
+      return { available: true, valueType: type, value: value };
+    }
+    return { available: true, valueType: ptvObjectType(value), value: String(value).slice(0, 200) };
+  } catch (err) {
+    return { available: true, error: String((err && err.message) || err) };
+  }
+}
+
+function ptvCandidateDeviceMethods() {
+  return [
+    "getName", "setName", "getModel", "getType", "getPortCount", "getPortAt", "getPort",
+    "skipBoot", "enterCommand", "setDhcpFlag",
+    "getService", "getServices", "getServiceCount", "getServiceAt", "getServiceNames",
+    "getServiceByName", "getServerService", "getServerServices", "getApplication",
+    "getApplications", "getApplicationCount", "getApplicationAt",
+    "isServiceOn", "isServiceEnabled", "setServiceOn", "setServiceEnabled",
+    "enableService", "disableService", "startService", "stopService", "restartService",
+    "getDns", "getDNS", "getDnsServer", "getDNSServer", "setDnsServer", "setDNSServer",
+    "setDnsService", "setDNSService", "setDnsServiceState", "setDNSServiceState",
+    "addDnsRecord", "addDNSRecord", "removeDnsRecord", "removeDNSRecord",
+    "getHttp", "getHTTP", "getHttpServer", "getHTTPServer", "setHttpServer", "setHTTPServer",
+    "setHttpService", "setHTTPService", "setHttpServiceState", "setHTTPServiceState",
+    "getFtp", "getFTP", "getFtpServer", "getFTPServer", "setFtpServer", "setFTPServer",
+    "setFtpService", "setFTPService", "setFtpServiceState", "setFTPServiceState",
+    "addFtpUser", "addFTPUser", "removeFtpUser", "removeFTPUser",
+    "setFtpUser", "setFTPUser", "setFtpUserPassword", "setFTPUserPassword",
+    "getDhcp", "getDHCP", "getDhcpServer", "getDHCPServer", "setDhcpServer", "setDHCPServer",
+    "setDhcpService", "setDHCPService", "addDhcpPool", "addDHCPPool",
+    "configureService", "configureServer", "getConfig", "setConfig"
+  ];
+}
+
+function ptvServicePatternMatch(name) {
+  var lower = String(name || "").toLowerCase();
+  return (
+    lower.indexOf("service") >= 0 ||
+    lower.indexOf("server") >= 0 ||
+    lower.indexOf("dns") >= 0 ||
+    lower.indexOf("http") >= 0 ||
+    lower.indexOf("ftp") >= 0 ||
+    lower.indexOf("dhcp") >= 0 ||
+    lower.indexOf("application") >= 0 ||
+    lower.indexOf("user") >= 0
+  );
+}
+
+function ptvProbeDeviceApi(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName;
+    var maxDepth = Math.max(0, Math.min(5, Number(input.maxDepth || 2)));
+    var maxKeys = Math.max(10, Math.min(300, Number(input.maxKeys || 120)));
+    var includeSafeCalls = input.includeSafeCalls !== false;
+    var device = ipc.network().getDevice(deviceName);
+    var candidates = ptvCandidateDeviceMethods();
+    var available = [];
+    var serviceHints = [];
+    var safeCalls = {};
+    var seenAvailable = {};
+    var seenHints = {};
+    var levels;
+    var i;
+    var j;
+
+    if (!device) return ptvError("device not found: " + deviceName);
+
+    levels = ptvCollectObjectApiKeys(device, maxDepth, maxKeys);
+
+    for (i = 0; i < candidates.length; i++) {
+      if (ptvMethodExists(device, candidates[i])) ptvPushUnique(available, seenAvailable, candidates[i]);
+    }
+
+    for (i = 0; i < levels.length; i++) {
+      var keys = levels[i].keys || [];
+      for (j = 0; j < keys.length; j++) {
+        if (ptvMethodExists(device, keys[j])) ptvPushUnique(available, seenAvailable, keys[j]);
+        if (ptvServicePatternMatch(keys[j])) ptvPushUnique(serviceHints, seenHints, keys[j]);
+      }
+    }
+
+    for (i = 0; i < available.length; i++) {
+      if (ptvServicePatternMatch(available[i])) ptvPushUnique(serviceHints, seenHints, available[i]);
+    }
+
+    if (includeSafeCalls) {
+      var safe = ["getName", "getModel", "getType", "getPortCount"];
+      for (i = 0; i < safe.length; i++) safeCalls[safe[i]] = ptvCallZeroArg(device, safe[i]);
+    }
+
+    return ptvSuccess({
+      deviceName: deviceName,
+      objectType: ptvObjectType(device),
+      availableCandidateMethods: available.sort(),
+      serviceMethodHints: serviceHints.sort(),
+      apiLevels: levels,
+      safeCalls: safeCalls,
+      note: "This is a read-only API probe. It does not change Server-PT services."
+    });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function ptvProbeServerServices(input) {
+  try {
+    input = input || {};
+    var deviceName = input.deviceName;
+    var device = deviceName ? ipc.network().getDevice(deviceName) : null;
+    var targets = [];
+    var results = [];
+    var i;
+
+    if (deviceName && !device) return ptvError("device not found: " + deviceName);
+
+    if (deviceName) {
+      targets.push(deviceName);
+    } else {
+      var count = ipc.network().getDeviceCount();
+      for (i = 0; i < count; i++) {
+        var item = ipc.network().getDeviceAt(i);
+        if (item && item.getModel && item.getModel() === "Server-PT") targets.push(item.getName());
+      }
+    }
+
+    for (i = 0; i < targets.length; i++) {
+      var probe = ptvProbeDeviceApi({
+        deviceName: targets[i],
+        maxDepth: input.maxDepth || 2,
+        maxKeys: input.maxKeys || 120,
+        includeSafeCalls: true
+      });
+      results.push(probe);
+    }
+
+    return ptvSuccess({
+      targetCount: targets.length,
+      targets: targets,
+      results: results,
+      canInferStableServiceApi: _ptvHasServiceAutomationHints(results),
+      nextStep: "If serviceMethodHints contains real DNS/HTTP/FTP setters, map them into a ptv_configureServerServices tool."
+    });
+  } catch (err) {
+    return ptvError((err && err.message) || err);
+  }
+}
+
+function _ptvHasServiceAutomationHints(results) {
+  var i;
+  var j;
+  var hasSetter = false;
+  var hasDns = false;
+  var hasHttp = false;
+  var hasFtp = false;
+  for (i = 0; i < results.length; i++) {
+    var hints = results[i].serviceMethodHints || [];
+    for (j = 0; j < hints.length; j++) {
+      var item = String(hints[j]).toLowerCase();
+      if (item.indexOf("set") >= 0 || item.indexOf("add") >= 0 || item.indexOf("enable") >= 0 || item.indexOf("start") >= 0) hasSetter = true;
+      if (item.indexOf("dns") >= 0) hasDns = true;
+      if (item.indexOf("http") >= 0) hasHttp = true;
+      if (item.indexOf("ftp") >= 0) hasFtp = true;
+    }
+  }
+  return hasSetter && (hasDns || hasHttp || hasFtp);
+}
+
 function ptvGetNetwork() {
   try {
     var i;
@@ -612,6 +870,8 @@ var ptvActions = {
   configureIos: ptvConfigureIos,
   runShowCommands: ptvRunShowCommands,
   getCommandLog: ptvGetCommandLog,
+  probeDeviceApi: ptvProbeDeviceApi,
+  probeServerServices: ptvProbeServerServices,
   getNetwork: ptvGetNetwork,
   validatePlan: ptvValidatePlan,
   verifyPlan: ptvVerifyPlan

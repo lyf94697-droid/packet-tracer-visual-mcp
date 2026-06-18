@@ -31,7 +31,7 @@ For validation:
 1. Use `ptv_validateCampusFast` by default. It keeps validation quick by checking plan shape, build/apply results, one optional canvas snapshot, key devices, and link count.
 2. Use `ptv_generateCampusValidationPlan` with `validationMode: "standard"` or `"strict"` only when the user explicitly wants slower IOS command checks.
 3. Use `ptv_runShowCommands` and `ptv_getCommandLog` for targeted deep checks; do not claim full show-output parsing unless Packet Tracer exposes it.
-4. Treat Server-PT DNS/Web/FTP graphical service toggles as manual unless the extension gains a reliable service API.
+4. For Server-PT DNS/Web/FTP graphical service toggles, call `ptv_probeServerServices` first if the user wants automation. Treat services as manual unless the probe reveals stable DNS/HTTP/FTP setter APIs.
 
 For fault demos:
 
@@ -101,6 +101,12 @@ If Packet Tracer Server-PT services cannot be fully configured through automatio
 - DNS: `www.campus.local -> 192.168.40.20`, `ftp.campus.local -> 192.168.40.30`
 - HTTP on the Web server
 - FTP on the FTP server with `ftpuser / cisco`
+
+Server-PT service probing:
+
+- Use `ptv_probeServerServices` for a read-only scan of Server-PT service API hints.
+- Use `ptv_probeDeviceApi` for a read-only scan of one device object's methods.
+- Do not claim DNS/Web/FTP service automation is stable until the probe exposes real service setter methods.
 
 ## Visual Rules
 

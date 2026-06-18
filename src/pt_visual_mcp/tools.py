@@ -199,6 +199,38 @@ TOOLS: list[dict[str, Any]] = [
         "timeout": 120.0,
     },
     {
+        "name": "ptv_probeDeviceApi",
+        "description": (
+            "Read-only probe for Packet Tracer device object APIs. Use it to inspect whether a device exposes "
+            "service-related methods before implementing Server-PT automation."
+        ),
+        "inputSchema": obj(
+            {
+                "deviceName": {"type": "string"},
+                "maxDepth": {"type": "integer", "minimum": 0, "maximum": 5, "default": 2},
+                "maxKeys": {"type": "integer", "minimum": 10, "maximum": 300, "default": 120},
+                "includeSafeCalls": {"type": "boolean", "default": True},
+            },
+            ["deviceName"],
+        ),
+        "action": "probeDeviceApi",
+    },
+    {
+        "name": "ptv_probeServerServices",
+        "description": (
+            "Read-only probe for Server-PT service automation hints. It scans one Server-PT or all Server-PT "
+            "devices for DNS/HTTP/FTP/DHCP related API names without changing services."
+        ),
+        "inputSchema": obj(
+            {
+                "deviceName": {"type": "string", "default": ""},
+                "maxDepth": {"type": "integer", "minimum": 0, "maximum": 5, "default": 2},
+                "maxKeys": {"type": "integer", "minimum": 10, "maximum": 300, "default": 120},
+            }
+        ),
+        "action": "probeServerServices",
+    },
+    {
         "name": "ptv_generateIosTemplate",
         "description": (
             "Generate reusable IOS command templates for static routes, RIP, OSPF, EIGRP, DHCP pools, "

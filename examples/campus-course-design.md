@@ -78,3 +78,5 @@ Server-PT 的图形服务建议按下面手动确认：
 - FTP：FTP 服务器开启 FTP，添加 `ftpuser / cisco`
 
 如果后续确认 Packet Tracer 脚本接口能稳定控制 Services 面板，可以再把这一步做成自动化工具。
+
+可以先用 `ptv_probeServerServices` 做只读探测，看看当前 Packet Tracer 版本有没有暴露 DNS/HTTP/FTP 相关 API。

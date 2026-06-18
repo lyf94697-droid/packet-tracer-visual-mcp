@@ -23,6 +23,8 @@ REQUIRED_TOOLS = {
     "ptv_configureIos",
     "ptv_getCommandLog",
     "ptv_runShowCommands",
+    "ptv_probeDeviceApi",
+    "ptv_probeServerServices",
     "ptv_generateIosTemplate",
     "ptv_generateCampusIosConfig",
     "ptv_generateCampusValidationPlan",
@@ -70,6 +72,8 @@ def main() -> int:
     assert "ptvActions" in script_text
     assert "runShowCommands" in script_text
     assert "getCommandLog" in script_text
+    assert "probeDeviceApi" in script_text
+    assert "probeServerServices" in script_text
 
     print(
         "project check passed: "
