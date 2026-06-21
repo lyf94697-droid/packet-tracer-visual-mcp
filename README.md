@@ -50,7 +50,13 @@ pt-visual-mcp
 
 ## Packet Tracer 里怎么接上
 
-先生成扩展脚本：
+推荐方式是生成并安装 `.pts` 持久模块，流程见：
+
+```text
+docs/create-pts-module.md
+```
+
+临时调试时也可以生成单文件 JS：
 
 ```powershell
 python scripts\build_script_engine.py
@@ -69,6 +75,14 @@ Extensions > PT Visual MCP
 ```
 
 窗口里显示 `connected` 就说明接上了。
+
+如果你像旧版 `cisco-pt-mcp` 一样想走稳定安装，最终应当安装：
+
+```text
+E:\mc\packet-tracer-visual-mcp\extension\packet-tracer-visual-mcp.pts
+```
+
+这个 `.pts` 需要用 Packet Tracer 按 `docs/create-pts-module.md` 导出一次。
 
 默认连接地址是：
 
